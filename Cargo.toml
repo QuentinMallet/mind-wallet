@@ -1,0 +1,22 @@
+[package]
+name = "mind-wallet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["mind-wallet contributors"]
+description = "Derive Monero wallet material from a memorized passphrase"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+abscissa_core = "0.9"
+argon2 = "0.5.3"
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
+curve25519-dalek = "4"
+monero = "0.21"
+qrcode = { version = "0.14.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+[[bin]]
+name = "mind-wallet"
+path = "src/main.rs"

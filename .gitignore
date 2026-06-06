@@ -5,3 +5,6 @@
 .agent-kb
 CLAUDE.md
 AGENTS.md
+target/
+.dev/
+docs/book/

@@ -80,9 +80,6 @@ fn hex_preview(bytes: &[u8]) -> String {
     out
 }
 
-/// Hex-encode a 32-byte key string (assumes Monero `PrivateKey::to_string`
-/// returns a 64-char hex; for `PublicKey` we derive the bytes via
-/// `curve25519_dalek` to keep this side of the JS boundary self-contained).
 fn full_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -245,67 +242,52 @@ pub fn derive(passphrase: &str, profile: &str) -> Result<JsValue, JsValue> {
         ));
     };
 
+    // Argon2id is the dominant cost; everything else in the chain takes
+    // sub-millisecond. We measure the two stages that do real work
+    // (`kdf_ms`, `keypair_ms`) and honestly report 0 for the two that
+    // are nominal (`seed_ms` is the same bytes as the KDF output, no
+    // extra work; `address_ms` is already accounted for in
+    // `derive_monero_wallet_material`). The walkthrough cards display
+    // these literally so a visitor reading "0 ms" learns something true
+    // about the pipeline rather than seeing a synthesised animation
+    // delay (Architect A6 / Critic N8 — honest timings).
     let t_kdf_start = now_ms();
     let seed = derive_seed_material(passphrase, profile_value).map_err(|e| {
-        js_err(
-            "derivation_failed",
-            format!("argon2 failed: {e}"),
-        )
+        js_err("derivation_failed", format!("argon2 failed: {e}"))
     })?;
-    let t_kdf_end = now_ms();
-
-    // The "seed" stage is a no-op in the current pipeline (Argon2 output IS
-    // the seed material) but we still measure the slice copy so the
-    // walkthrough card has a meaningful — if tiny — number to display
-    // instead of a synthesised one.
-    let t_seed_start = now_ms();
-    let seed_copy = seed;
-    let t_seed_end = now_ms();
+    let kdf_ms = now_ms() - t_kdf_start;
 
     let t_keys_start = now_ms();
-    let wallet = derive_monero_wallet_material(seed_copy);
-    let t_keys_end = now_ms();
+    let wallet = derive_monero_wallet_material(seed);
+    let keypair_ms = now_ms() - t_keys_start;
 
-    // Compute pubkey hex from the private-key scalar bytes. The address
-    // construction inside `derive_monero_wallet_material` already does this
-    // internally but does not expose the pubkeys — we re-derive deterministically
-    // (basepoint × scalar) to populate the walkthrough card. No new randomness
-    // is introduced.
-    let mut spend_scalar = [0u8; 32];
-    spend_scalar[..20].copy_from_slice(&seed_copy);
-    let spend_pub_hex = pub_key_hex_from_scalar_bytes(&spend_scalar);
-
-    // The view scalar is `Keccak-256(spend_priv_bytes)` reduced mod l.
-    // Mirroring `private_view_key_from_spend` in `core/monero/mod.rs` would
-    // require importing `monero::Hash` which we already do transitively; we
-    // re-encode by hashing the private spend bytes and treating it as a
-    // scalar, matching the existing logic byte-for-byte.
-    use monero::{Hash, PrivateKey};
+    // Pubkeys for the walkthrough cards. `derive_monero_wallet_material`
+    // already computes these internally to build the address but does
+    // not expose them, so we re-derive (basepoint × scalar) from the
+    // private spend scalar and the Keccak-derived view scalar — both
+    // deterministic, both byte-identical to what the address encodes.
     use curve25519_dalek::scalar::Scalar;
+    use monero::{Hash, PrivateKey};
+    let mut spend_scalar = [0u8; 32];
+    spend_scalar[..20].copy_from_slice(&seed);
+    let spend_pub_hex = pub_key_hex_from_scalar_bytes(&spend_scalar);
     let private_spend = PrivateKey::from_scalar(Scalar::from_bytes_mod_order(spend_scalar));
     let private_view = Hash::hash_to_scalar(private_spend.to_bytes());
     let view_pub_hex = pub_key_hex_from_scalar_bytes(&private_view.to_bytes());
 
-    let t_addr_start = now_ms();
-    // The address string is already built by `derive_monero_wallet_material`;
-    // we just expose it under the addr stage timer so the card has a real
-    // measurement rather than a zero.
-    let address = wallet.primary_address.clone();
-    let t_addr_end = now_ms();
-
     let result = DerivationResult {
         mnemonic: wallet.mnemonic_seed_phrase.clone(),
         bundle: key_address_bundle(&wallet),
-        address,
-        kdf_preview_hex: hex_preview(&seed_copy),
-        seed_preview_hex: hex_preview(&seed_copy),
+        address: wallet.primary_address.clone(),
+        kdf_preview_hex: hex_preview(&seed),
+        seed_preview_hex: hex_preview(&seed),
         spend_pub_hex,
         view_pub_hex,
         profile_summary: profile_summary(profile_value),
-        kdf_ms: t_kdf_end - t_kdf_start,
-        seed_ms: t_seed_end - t_seed_start,
-        keypair_ms: t_keys_end - t_keys_start,
-        address_ms: t_addr_end - t_addr_start,
+        kdf_ms,
+        seed_ms: 0.0,
+        keypair_ms,
+        address_ms: 0.0,
     };
 
     serde_wasm_bindgen::to_value(&result).map_err(|e| {

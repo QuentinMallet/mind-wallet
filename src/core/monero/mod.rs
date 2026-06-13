@@ -1,3 +1,9 @@
+//! INVARIANT: derivation MUST be purely deterministic from the 20-byte
+//! seed. No `thread_rng`, no `OsRng`, no system-time inputs anywhere in
+//! the seed → keypair → address chain. The mind-wallet WASM portfolio
+//! demo relies on this for native↔wasm parity and for the determinism
+//! oracle in `tests/determinism.rs`.
+
 use crc32fast::Hasher;
 use curve25519_dalek::scalar::Scalar;
 use monero::{Address, Hash, KeyPair, Network, PrivateKey};

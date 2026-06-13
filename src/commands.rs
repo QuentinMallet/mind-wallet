@@ -7,7 +7,6 @@ use clap::Parser;
 use qrcode::{QrCode, render::unicode};
 use std::path::PathBuf;
 
-const REQUIRED_PASSPHRASE_WORDS: usize = 16;
 
 #[derive(Command, Debug, Parser)]
 #[command(author, about, version)]
@@ -64,11 +63,6 @@ impl Runnable for EntryPoint {
             eprintln!("WARNING: QR output exposes private keys");
         }
 
-        if let Err(error) = validate_passphrase(&self.passphrase) {
-            eprintln!("{error}");
-            std::process::exit(2);
-        }
-
         let seed = match derive_seed_material(&self.passphrase, profile) {
             Ok(seed) => seed,
             Err(error) => {
@@ -101,17 +95,6 @@ impl Runnable for EntryPoint {
     }
 }
 
-fn validate_passphrase(passphrase: &str) -> Result<(), String> {
-    let word_count = passphrase.split_whitespace().count();
-
-    if word_count == REQUIRED_PASSPHRASE_WORDS {
-        Ok(())
-    } else {
-        Err(format!(
-            "passphrase must contain exactly {REQUIRED_PASSPHRASE_WORDS} words; got {word_count}"
-        ))
-    }
-}
 
 fn selected_profile(profile: &str) -> Option<Profile> {
     match profile {

@@ -23,7 +23,7 @@ impl Profile {
             memory_cost_kib: 19 * 1024,
             time_cost: 2,
             parallelism: 1,
-            output_len: 32,
+            output_len: 20,
         }
     }
 

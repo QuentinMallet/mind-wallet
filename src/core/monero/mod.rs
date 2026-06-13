@@ -35,10 +35,9 @@ pub fn derive_monero_wallet_material(seed: SeedMaterial) -> MoneroWalletMaterial
 
 pub fn mnemonic_from_seed_material(seed: SeedMaterial) -> String {
     let words = english_words();
-    let reduced_seed = Scalar::from_bytes_mod_order(seed).to_bytes();
-    let mut phrase_words = Vec::with_capacity(25);
+    let mut phrase_words = Vec::with_capacity(16);
 
-    for chunk in reduced_seed.chunks_exact(4) {
+    for chunk in seed.chunks_exact(4) {
         let index = u32::from_le_bytes(chunk.try_into().expect("chunks_exact yields 4 bytes"));
 
         let word_1 = index as usize % WORD_COUNT;
@@ -56,7 +55,9 @@ pub fn mnemonic_from_seed_material(seed: SeedMaterial) -> String {
 }
 
 fn private_spend_key_from_seed(seed: SeedMaterial) -> PrivateKey {
-    PrivateKey::from_scalar(Scalar::from_bytes_mod_order(seed))
+    let mut padded = [0u8; 32];
+    padded[..20].copy_from_slice(&seed);
+    PrivateKey::from_scalar(Scalar::from_bytes_mod_order(padded))
 }
 
 fn private_view_key_from_spend(private_spend: PrivateKey) -> PrivateKey {

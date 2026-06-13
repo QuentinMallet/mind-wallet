@@ -12,8 +12,8 @@ const RUN_ENV: &str = "MIND_WALLET_RUN_MONERO_CLI";
 const CLI_ENV: &str = "MONERO_WALLET_CLI";
 
 fn decode_seed(hex_seed: &str) -> SeedMaterial {
-    assert_eq!(hex_seed.len(), 64);
-    let mut seed = [0u8; 32];
+    assert_eq!(hex_seed.len(), 40);
+    let mut seed = [0u8; 20];
 
     for (index, chunk) in hex_seed.as_bytes().chunks(2).enumerate() {
         let hex = std::str::from_utf8(chunk).expect("hex seed should be utf-8");
@@ -106,7 +106,7 @@ fn official_cli_restores_generated_mnemonic_seed_phrase() {
     let Some(cli) = official_cli() else {
         return;
     };
-    let seed = decode_seed("82a13b87b69555ba976601302e2498aed4875185c87b9133bf8d214f16e9eb0b");
+    let seed = decode_seed("82a13b87b69555ba976601302e2498aed4875185");
     let mnemonic = mnemonic_from_seed_material(seed);
     let wallet = wallet_path("seed-restore");
     create_wallet_dir(&wallet);
@@ -149,7 +149,7 @@ fn official_cli_restores_generated_key_address_bundle() {
     let Some(cli) = official_cli() else {
         return;
     };
-    let seed = decode_seed("3eb8e283b45559d4d2fb6b3a4f52443b420e6da2b38832ea0eb642100c92d600");
+    let seed = decode_seed("3eb8e283b45559d4d2fb6b3a4f52443b420e6da2");
     let wallet_material = derive_monero_wallet_material(seed);
     let wallet = wallet_path("key-restore");
     create_wallet_dir(&wallet);

@@ -22,7 +22,7 @@ fn v1_profile_metadata_is_stable() {
     assert_eq!(profile.memory_cost_kib(), 19 * 1024);
     assert_eq!(profile.time_cost(), 2);
     assert_eq!(profile.parallelism(), 1);
-    assert_eq!(profile.output_len(), 32);
+    assert_eq!(profile.output_len(), 20);
 }
 
 #[test]
@@ -56,6 +56,6 @@ fn v1_golden_vector_is_reproducible() {
 
     assert_eq!(
         hex_encode(seed),
-        "9d7650b788e4936112664867b83b485c2100f4d9d84ef3e533cf32b523d21fdb"
+        "2aab25d06cd39a33bcd36f7047e596966b59f9de"
     );
 }

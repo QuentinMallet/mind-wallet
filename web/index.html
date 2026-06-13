@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="fr" class="mallet">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <!-- build-sha is rewritten by .github/workflows/deploy-pages.yml at deploy time -->
+  <meta name="build-sha" content="DEV">
+  <meta name="description" content="Démonstration WebAssembly : dérivation déterministe d'un portefeuille Monero à partir d'une passphrase mémorisée. mind-wallet par Quentin Mallet.">
+  <title>mind-wallet — démonstration WebAssembly</title>
+
+  <!--
+    Brand contract (Architect A4-A5 / Principle #3):
+      1. Local mind-wallet.css FIRST so its fallback :root block populates
+         the design tokens before tokens.css is fetched. If tokens.css
+         fails to load (cross-origin block, tracking protection, host
+         compromise), the page degrades to a legible heraldic palette
+         instead of unstyled white-on-white.
+      2. Live mstratsec.biz/tokens.css SECOND so the live brand wins when
+         it is reachable. referrerpolicy=no-referrer + crossorigin=anonymous
+         keep the request as unattributed as possible — see
+         README.md#supply-chain-takedown for the threat model.
+  -->
+  <link rel="stylesheet" href="./mind-wallet.css">
+  <link rel="stylesheet"
+        href="https://mstratsec.biz/tokens.css"
+        referrerpolicy="no-referrer"
+        crossorigin="anonymous">
+</head>
+<body>
+  <a class="skip-link" href="#derive-form">Aller au formulaire</a>
+
+  <header role="banner">
+    <p class="eyebrow">MALLET — Stratégie &amp; Sécurité</p>
+    <h1>mind-wallet</h1>
+    <p class="lede">
+      Dérivation déterministe d'un portefeuille Monero à partir d'une passphrase mémorisée,
+      compilée en WebAssembly et exécutée intégralement dans le navigateur.
+    </p>
+  </header>
+
+  <main>
+    <!-- ============================================================
+         Left pane: passphrase form + walkthrough cards
+         ============================================================ -->
+    <section class="pane pane--input" aria-labelledby="input-heading">
+      <h2 id="input-heading" class="pane-heading">Dérivation</h2>
+
+      <aside class="warning" role="note" aria-label="Avertissement de sécurité">
+        <strong>Démonstration uniquement.</strong>
+        Cette page exécute la même chaîne de dérivation que la CLI <code>mind-wallet</code>,
+        mais une page web reste un environnement moins maîtrisé qu'un terminal.
+        Pour générer un portefeuille destiné à recevoir des fonds réels, utilisez la
+        <a href="https://github.com/QuentinMallet/mind-wallet" rel="noopener noreferrer">CLI Rust</a>
+        depuis un poste hors ligne.
+      </aside>
+
+      <form id="derive-form" novalidate>
+        <div class="field">
+          <label for="passphrase">Passphrase (16 mots, séparés par des espaces)</label>
+          <textarea id="passphrase"
+                    name="passphrase"
+                    rows="3"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    aria-describedby="passphrase-hint passphrase-error"
+                    required></textarea>
+          <p id="passphrase-hint" class="hint">
+            Exactement seize mots, séparés par des espaces. La page ne valide pas
+            l'orthographe : tout texte de 16 mots est accepté.
+          </p>
+          <p id="passphrase-error" class="error" role="alert" aria-live="polite"></p>
+        </div>
+
+        <div class="field">
+          <label for="profile">Profil de dérivation</label>
+          <select id="profile" name="profile">
+            <!-- Populated at runtime from wasm.supported_profiles() -->
+            <option value="v1" selected>v1</option>
+          </select>
+          <p class="hint">Le profil pilote les paramètres Argon2id (m, t, p) et le domaine.</p>
+        </div>
+
+        <div class="actions">
+          <button type="submit" id="derive-button">Dériver</button>
+          <span class="kbd-hint" aria-hidden="true">Ctrl/⌘ + Entrée</span>
+        </div>
+      </form>
+
+      <ol class="walkthrough" aria-label="Étapes de la dérivation">
+        <li class="card card--kdf" data-stage="kdf" aria-live="polite">
+          <span class="card-step">1</span>
+          <div class="card-body">
+            <h3 class="card-title">Argon2id KDF</h3>
+            <p class="card-desc">
+              Passphrase ⟶ 20 octets de matériel pseudo-aléatoire via Argon2id
+              (m, t, p, domaine pilotés par le profil).
+            </p>
+            <p class="card-value" data-slot="kdf_preview_hex">—</p>
+            <p class="card-timing" data-slot="kdf_ms">—</p>
+          </div>
+        </li>
+
+        <li class="card card--seed" data-stage="seed">
+          <span class="card-step">2</span>
+          <div class="card-body">
+            <h3 class="card-title">Matériel de graine</h3>
+            <p class="card-desc">
+              Les 20 octets servent de graine déterministe pour toute la chaîne.
+              Aperçu limité à 8 octets&nbsp;: la graine complète ne quitte jamais le WASM.
+            </p>
+            <p class="card-value" data-slot="seed_preview_hex">—</p>
+            <p class="card-timing" data-slot="seed_ms">—</p>
+          </div>
+        </li>
+
+        <li class="card card--spend" data-stage="spend">
+          <span class="card-step">3</span>
+          <div class="card-body">
+            <h3 class="card-title">Clé privée &amp; publique de dépense</h3>
+            <p class="card-desc">
+              Padding sur 32 octets puis <code>Scalar::from_bytes_mod_order</code>.
+              La clé publique est le point ed25519 <code>scalar · B</code>.
+            </p>
+            <p class="card-value mono" data-slot="spend_pub_hex">—</p>
+            <p class="card-timing" data-slot="keypair_ms">—</p>
+          </div>
+        </li>
+
+        <li class="card card--view" data-stage="view">
+          <span class="card-step">4</span>
+          <div class="card-body">
+            <h3 class="card-title">Clé privée &amp; publique de vue</h3>
+            <p class="card-desc">
+              <code>Keccak-256(spend_priv)</code> réduit mod <em>l</em>.
+              La clé publique correspondante est calculée de la même façon.
+            </p>
+            <p class="card-value mono" data-slot="view_pub_hex">—</p>
+            <p class="card-timing" data-slot="keypair_ms_view">&nbsp;</p>
+          </div>
+        </li>
+
+        <li class="card card--address" data-stage="address">
+          <span class="card-step">5</span>
+          <div class="card-body">
+            <h3 class="card-title">Adresse Monero primaire</h3>
+            <p class="card-desc">
+              Réseau mainnet (<code>0x12</code>) + clés publiques + 4 octets de checksum
+              Keccak-256, encodé en Base58 Monero.
+            </p>
+            <p class="card-value mono" data-slot="address_short">—</p>
+            <p class="card-timing" data-slot="address_ms">—</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ============================================================
+         Right pane: sticky result panel
+         ============================================================ -->
+    <section class="pane pane--result" aria-labelledby="result-heading">
+      <h2 id="result-heading" class="pane-heading">Résultat</h2>
+
+      <div class="result" data-state="empty">
+        <div class="result-empty" data-slot="empty-msg">
+          Le résultat apparaîtra ici après dérivation.
+        </div>
+
+        <div class="result-content" data-blur="true" hidden>
+          <button type="button" class="reveal-button" data-action="reveal">
+            <span class="reveal-icon" aria-hidden="true">👁</span>
+            Révéler le résultat
+          </button>
+
+          <div class="result-section">
+            <h3>Phrase mnémonique</h3>
+            <p class="mnemonic" data-slot="mnemonic"></p>
+          </div>
+
+          <div class="result-section">
+            <h3>Bundle de restauration</h3>
+            <pre class="bundle" data-slot="bundle"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Adresse</h3>
+            <p class="address mono" data-slot="address"></p>
+          </div>
+
+          <div class="result-section">
+            <h3>QR code</h3>
+            <div class="qr" data-slot="qr" aria-label="QR code du bundle de restauration"></div>
+          </div>
+
+          <p class="profile-summary" data-slot="profile_summary"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer role="contentinfo">
+    <p class="motto"><em>Dictum Meum Solidus Meus</em></p>
+    <p class="brand-note">
+      Charte graphique en direct depuis
+      <a href="https://mstratsec.biz/" rel="noopener noreferrer">mstratsec.biz</a>.
+      Si vous lisez ce texte avec des caractères système, la feuille de
+      tokens distante n'a pas pu être chargée et la page utilise la
+      palette de repli locale.
+    </p>
+    <p class="build-info">
+      build:&nbsp;<code data-slot="build-sha"></code>
+      —
+      <a href="https://github.com/QuentinMallet/mind-wallet" rel="noopener noreferrer">source</a>
+      ·
+      <a href="https://github.com/QuentinMallet/mind-wallet/blob/master/web/README.md" rel="noopener noreferrer">README</a>
+    </p>
+  </footer>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

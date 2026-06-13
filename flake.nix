@@ -146,20 +146,33 @@
 
         devShells = {
           default = pkgs.mkShell {
-            inputsFrom = [ mindWallet ];
+            # Note: `inputsFrom = [ mindWallet ]` is intentionally NOT used.
+            # `mindWallet` brings the original 5-component toolchain via its
+            # nativeBuildInputs, which would PATH-shadow the wasm-extended
+            # toolchain below and cause `wasm-pack build` to error with
+            # "wasm32-unknown-unknown target not found in sysroot". Brave
+            # devshell users wanting C deps from mindWallet can add them
+            # explicitly to buildInputs.
             buildInputs = [
-              (fenix.packages.${system}.stable.withComponents [
-                "cargo"
-                "clippy"
-                "rust-src"
-                "rustc"
-                "rustfmt"
+              # Fenix stable toolchain bundled with the wasm32 target so
+              # `wasm-pack build --target web` can resolve `core` for
+              # `wasm32-unknown-unknown` without a separate `rustup target add`.
+              (fenix.packages.${system}.combine [
+                fenix.packages.${system}.stable.cargo
+                fenix.packages.${system}.stable.clippy
+                fenix.packages.${system}.stable.rust-src
+                fenix.packages.${system}.stable.rustc
+                fenix.packages.${system}.stable.rustfmt
+                fenix.packages.${system}.targets.wasm32-unknown-unknown.stable.rust-std
               ])
             ]
             ++ (with pkgs; [
               mdbook
               monero-cli
               nixfmt
+              # WASM portfolio demo tooling (Fork A1 / Fork D1).
+              wasm-pack
+              binaryen # provides `wasm-opt` used by deploy-pages.yml (best-effort)
             ]);
           };
         };

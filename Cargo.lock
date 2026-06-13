@@ -586,6 +586,7 @@ dependencies = [
  "crc32fast",
  "curve25519-dalek",
  "getrandom",
+ "js-sys",
  "monero",
  "qrcode",
  "serde",

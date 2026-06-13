@@ -39,6 +39,7 @@ wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
 getrandom = { version = "0.2", features = ["js"] }
 console_error_panic_hook = "0.1"
+js-sys = "0.3"
 
 # Contingent fallback dep for Pre-mortem #1 (monero crate fails on wasm32):
 # uncomment to hand-roll the Keccak-256 path. Wasm-only by construction — does
@@ -49,6 +50,13 @@ console_error_panic_hook = "0.1"
 # pollute the native test graph and break Principle #1 (Critic N1).
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+[lib]
+# `cdylib` is required for `wasm-pack` to emit a loadable module. `rlib` is
+# preserved so the existing CLI `[[bin]]` (which depends on the library) and
+# all `tests/*` can keep linking against `mind_wallet`. Both crate-types
+# coexist without changing the native binary's symbol set.
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "mind-wallet"

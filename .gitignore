@@ -8,3 +8,4 @@ AGENTS.md
 target/
 .dev/
 docs/book/
+web/pkg/

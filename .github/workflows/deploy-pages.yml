@@ -1,0 +1,121 @@
+name: Deploy WASM portfolio page
+
+# Builds and deploys https://mind-wallet.mstratsec.biz/ on every push to
+# master. The deploy is gated by the same invariants the local test
+# suite checks: zero-network grep on hand-written JS, build-sha
+# substitution success, CNAME present at upload root.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable + wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Install wasm-opt (binaryen)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y binaryen
+
+      - name: Build WASM artifact
+        run: wasm-pack build --target web --features wasm
+
+      - name: Optimize WASM (best-effort, -Oz)
+        run: |
+          if command -v wasm-opt >/dev/null 2>&1; then
+            wasm-opt -Oz -o pkg/mind_wallet_bg.wasm.opt pkg/mind_wallet_bg.wasm
+            mv pkg/mind_wallet_bg.wasm.opt pkg/mind_wallet_bg.wasm
+          else
+            echo "::warning::wasm-opt not available; skipping -Oz pass"
+          fi
+
+      - name: Stage web/ tree
+        run: |
+          rm -rf web/pkg
+          mv pkg web/pkg
+
+      - name: Substitute build-sha into index.html
+        run: |
+          sed -i 's|<meta name="build-sha" content="DEV">|<meta name="build-sha" content="${{ github.sha }}">|' web/index.html
+          # BLOCKING: assert the substitution actually ran. A silent miss
+          # would ship `content="DEV"` to production and break the
+          # deploy-traceability invariant.
+          grep -q 'content="${{ github.sha }}"' web/index.html \
+            || (echo "::error::build-sha substitution failed"; exit 1)
+
+      - name: Zero-network grep gate (hand-written main.js only)
+        run: |
+          # The grep target is the hand-written ES module only. pkg/mind_wallet.js
+          # is wasm-bindgen-generated glue and IS allowed to call fetch() to load
+          # the .wasm binary on init — scanning it would be a false-positive sink.
+          if grep -E 'fetch\(|XMLHttpRequest|sendBeacon|navigator\.geolocation' web/main.js; then
+            echo "::error::hand-written network call found in web/main.js"
+            exit 1
+          fi
+          echo "main.js zero-network gate passed"
+
+      - name: Assemble _site/
+        run: |
+          mkdir -p _site
+          cp -R web/. _site/
+
+      - name: CNAME assertion (BLOCKING)
+        run: |
+          test -f _site/CNAME || (echo "::error::_site/CNAME missing"; exit 1)
+          grep -qx 'mind-wallet.mstratsec.biz' _site/CNAME \
+            || (echo "::error::_site/CNAME has wrong hostname"; exit 1)
+
+      - name: Deploy annotations
+        run: |
+          UNCOMPRESSED=$(stat -c '%s' _site/pkg/mind_wallet_bg.wasm)
+          GZIP=$(gzip -c _site/pkg/mind_wallet_bg.wasm | wc -c)
+          {
+            echo "## mind-wallet WASM deploy"
+            echo ""
+            echo "| field        | value |"
+            echo "|--------------|-------|"
+            echo "| commit       | \`${{ github.sha }}\` |"
+            echo "| wasm raw     | $UNCOMPRESSED bytes |"
+            echo "| wasm gzip    | $GZIP bytes |"
+            echo "| target URL   | https://mind-wallet.mstratsec.biz/ |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

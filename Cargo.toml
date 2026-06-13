@@ -35,7 +35,9 @@ clap = { version = "4", features = ["derive"] }
 # (curve25519-dalek transitive) — derivation itself MUST remain deterministic
 # per `src/core/monero.rs` invariant; `js` only satisfies the link contract.
 [target.'cfg(target_family = "wasm")'.dependencies]
-wasm-bindgen = "0.2"
+# Version pinned to match `pkgs.wasm-bindgen-cli` shipped by nixpkgs (the
+# CLI and the crate must agree exactly). Bump in lockstep with nixpkgs.
+wasm-bindgen = "=0.2.121"
 serde-wasm-bindgen = "0.6"
 getrandom = { version = "0.2", features = ["js"] }
 console_error_panic_hook = "0.1"

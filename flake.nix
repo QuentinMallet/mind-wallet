@@ -98,6 +98,63 @@
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
         };
+
+        # Sandbox-friendly WASM build for the portfolio demo. Uses
+        # `cargo build` + `wasm-bindgen` + `wasm-opt` directly instead of
+        # `wasm-pack` (which auto-downloads wasm-bindgen-cli at build time
+        # and therefore cannot run inside a sealed nix derivation).
+        #
+        # `pkgs.wasm-bindgen-cli` must match the `wasm-bindgen` crate
+        # version exactly — pinned to `=0.2.121` in Cargo.toml. Bump both
+        # in lockstep with any nixpkgs upgrade.
+        wasmToolchain = fenix.packages.${system}.combine [
+          fenix.packages.${system}.stable.cargo
+          fenix.packages.${system}.stable.rustc
+          fenix.packages.${system}.targets.wasm32-unknown-unknown.stable.rust-std
+        ];
+        wasmPlatform = pkgs.makeRustPlatform {
+          cargo = wasmToolchain;
+          rustc = wasmToolchain;
+        };
+        mindWalletWasm = wasmPlatform.buildRustPackage {
+          pname = "mind-wallet-wasm";
+          version = "0.1.0";
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = with pkgs; [ wasm-bindgen-cli binaryen ];
+          cargoBuildFlags = [
+            "--lib"
+            "--features"
+            "wasm"
+          ];
+          CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+          # The lib has no `[[test]]`s on wasm32 that we want to run inside
+          # the build sandbox (the wasm-bindgen-test harness needs node);
+          # they are covered by `wasm-pack test --node` in the devshell.
+          doCheck = false;
+          buildPhase = ''
+            runHook preBuild
+            cargo build --release \
+              --target wasm32-unknown-unknown \
+              --features wasm \
+              --lib \
+              --offline
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/pkg
+            wasm-bindgen \
+              target/wasm32-unknown-unknown/release/mind_wallet.wasm \
+              --out-dir $out/pkg \
+              --target web
+            wasm-opt -Oz \
+              $out/pkg/mind_wallet_bg.wasm \
+              -o $out/pkg/mind_wallet_bg.wasm.opt
+            mv $out/pkg/mind_wallet_bg.wasm.opt $out/pkg/mind_wallet_bg.wasm
+            runHook postInstall
+          '';
+        };
         cargoFmtCheck = pkgs.runCommand "mind-wallet-cargo-fmt-check" { } ''
           cp -r ${self} source
           chmod -R u+w source
@@ -119,6 +176,7 @@
       {
         packages = {
           mind-wallet = mindWallet;
+          mind-wallet-wasm = mindWalletWasm;
           default = mindWallet;
           doc = mkDoc { };
           doc-with-planning = mkDoc { includePlanning = true; };
@@ -133,6 +191,7 @@
 
         checks = {
           mind-wallet = mindWallet;
+          mind-wallet-wasm = mindWalletWasm;
           cargo-fmt = cargoFmtCheck;
           cargo-clippy = cargoClippyCheck;
           docs = self.packages.${system}.doc;

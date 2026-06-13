@@ -7,15 +7,48 @@ authors = ["mind-wallet contributors"]
 description = "Derive Monero wallet material from a memorized passphrase"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+# `wasm` is a tag feature; real wasm-only deps live in the target-cfg section
+# below. Native callers can still set `--features wasm` to surface the wasm
+# module via `#[cfg(feature = "wasm")]` shims if needed.
+wasm = []
+
+# Shared dependencies — pure-Rust crypto + serde. Available on every target.
 [dependencies]
-abscissa_core = "0.9"
 argon2 = "0.5.3"
-clap = { version = "4", features = ["derive"] }
 crc32fast = "1"
 curve25519-dalek = "4"
 monero = "0.21"
-qrcode = { version = "0.14.1", default-features = false }
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 serde = { version = "1", features = ["derive"] }
+
+# Native-only deps. Host-side runtime + CLI parser. Kept out of the wasm32
+# resolution graph so `signal-hook`, `termcolor`, and similar host-only crates
+# never enter the WASM build (Architect A1 + Critic N1).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+abscissa_core = "0.9"
+clap = { version = "4", features = ["derive"] }
+
+# WASM-only deps. Loaded only when the target_family is wasm. `getrandom`'s
+# `js` feature wires the browser RNG transparently for downstream crates
+# (curve25519-dalek transitive) — derivation itself MUST remain deterministic
+# per `src/core/monero.rs` invariant; `js` only satisfies the link contract.
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+getrandom = { version = "0.2", features = ["js"] }
+console_error_panic_hook = "0.1"
+
+# Contingent fallback dep for Pre-mortem #1 (monero crate fails on wasm32):
+# uncomment to hand-roll the Keccak-256 path. Wasm-only by construction — does
+# not affect the native build. LOC budget ~60-80.
+# sha3 = { version = "0.10", default-features = false }
+
+# WASM dev-deps must be target-cfg-gated. Plain `[dev-dependencies]` would
+# pollute the native test graph and break Principle #1 (Critic N1).
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [[bin]]
 name = "mind-wallet"
